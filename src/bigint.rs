@@ -1,5 +1,6 @@
 use std::num::Wrapping;
 
+#[derive(Copy, Clone)]
 pub struct BigInt<const N: usize, const B: u32>(
     #[doc(hidden)]
     pub [u32; N],

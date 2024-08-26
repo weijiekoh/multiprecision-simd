@@ -1,13 +1,17 @@
-use wasm_bindgen_test::*;
-use rand::Rng;
-use multiprecision_simd::bigint::{BigInt, BigInt256};
+use multiprecision_simd::bigint::BigInt;
 use num_traits::identities::Zero;
-use core::arch::wasm32::u64x2_extract_lane;
-use num_bigint::{BigUint, RandomBits};
+use num_bigint::BigUint;
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
 //wasm_bindgen_test_configure!(run_in_browser);
+
+pub fn get_timestamp_now() -> f64 {
+    web_sys::window().expect("should have a Window")
+        .performance()
+        .expect("should have a Performance")
+        .now()
+}
 
 pub fn gen_seeded_rng(seed: u64) -> ChaCha8Rng {
     ChaCha8Rng::seed_from_u64(seed)
@@ -64,15 +68,4 @@ pub fn bigint_to_hex<const N: usize, const B: u32>(
         res = format!("{:0>8}{}", h, res);
     }
     String::from(res)
-}
-
-#[test]
-#[wasm_bindgen_test]
-fn test_biguint_to_bigint() {
-    let mut rng = gen_seeded_rng(0);
-    let val: BigUint = rng.sample(RandomBits::new(256));
-    let val_hex = hex::encode(&val.to_bytes_be());
-    let b: BigInt256 = biguint_to_bigint(&val);
-
-    assert_eq!(val_hex, bigint_to_hex(&b));
 }

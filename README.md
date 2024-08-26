@@ -17,4 +17,12 @@ TODO
 
 TODO
 
+## Running benchmarks
+
+Field multiplication benchmarks:
+
+```bash
+wasm-pack test --firefox --headless --test mont
+```
+
 ## References and credits
