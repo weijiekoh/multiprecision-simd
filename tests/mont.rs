@@ -5,7 +5,10 @@ use wasm_bindgen_test::*;
 use num_bigint::{BigInt as nbBigInt, BigUint, Sign, RandomBits};
 use rand::Rng;
 use multiprecision_simd::bigint::BigInt256;
-use multiprecision_simd::mont::bm17_simd_mont_mul;
+use multiprecision_simd::mont::{
+    bm17_simd_mont_mul,
+    bm17_non_simd_mont_mul
+};
 use crate::utils::{get_timestamp_now, gen_seeded_rng, bigint_to_biguint, biguint_to_bigint};
 use web_sys::console;
 
@@ -57,6 +60,39 @@ fn test_bm17_simd_mont_mul() {
             let p: BigInt256 = biguint_to_bigint(&p);
 
             let result = bm17_simd_mont_mul(&ar, &br, &p, mu);
+
+            assert_eq!(bigint_to_biguint(&result), abr);
+        }
+    }
+}
+
+#[test]
+#[wasm_bindgen_test]
+fn test_bm17_non_simd_mont_mul() {
+    let num_limbs = 8;
+    let log_limb_size = 32;
+
+    let mut rng = gen_seeded_rng(0);
+
+    for p in get_ps() {
+        let r = BigUint::from(2u32).pow(num_limbs * log_limb_size);
+        let mu = compute_bm17_mu(&p, &r, log_limb_size);
+        for _ in 0..NUM_RUNS {
+            let a: BigUint = rng.sample(RandomBits::new(256));
+            let b: BigUint = rng.sample(RandomBits::new(256));
+
+            // Convert the inputs into Montgomery form
+            let ar = (&a * &r) % &p;
+            let br = (&b * &r) % &p;
+
+            // The expected result
+            let abr = (&a * &b * &r) % &p;
+
+            let ar: BigInt256 = biguint_to_bigint(&ar);
+            let br: BigInt256 = biguint_to_bigint(&br);
+            let p: BigInt256 = biguint_to_bigint(&p);
+
+            let result = bm17_non_simd_mont_mul(&ar, &br, &p, mu);
 
             assert_eq!(bigint_to_biguint(&result), abr);
         }
@@ -117,7 +153,7 @@ pub fn calc_inv_and_pprime(
 
 const COST: u32 = 10000;
 
-pub fn reference_function(
+pub fn reference_function_num_bigint(
     a: &BigUint,
     b: &BigUint,
     p: &BigUint,
@@ -127,6 +163,40 @@ pub fn reference_function(
     let mut y = b.clone();
     for _ in 0..cost {
         let z = &x * &y % p;
+        x = y;
+        y = z;
+    }
+    y.clone()
+}
+
+pub fn reference_function_bm17_simd(
+    ar: &BigInt256,
+    br: &BigInt256,
+    p: &BigInt256,
+    mu: u32,
+    cost: u32,
+) -> BigInt256 {
+    let mut x = ar.clone();
+    let mut y = br.clone();
+    for _ in 0..cost {
+        let z = bm17_simd_mont_mul(&x, &y, &p, mu);
+        x = y;
+        y = z;
+    }
+    y.clone()
+}
+
+pub fn reference_function_bm17_non_simd(
+    ar: &BigInt256,
+    br: &BigInt256,
+    p: &BigInt256,
+    mu: u32,
+    cost: u32,
+) -> BigInt256 {
+    let mut x = ar.clone();
+    let mut y = br.clone();
+    for _ in 0..cost {
+        let z = bm17_non_simd_mont_mul(&x, &y, &p, mu);
         x = y;
         y = z;
     }
@@ -151,7 +221,7 @@ pub fn benchmark_bm17_simd_mont_mul() {
     let b: BigUint = rng.sample(RandomBits::new(256));
 
     let start = get_timestamp_now();
-    let expected = reference_function(&a, &b, &p, COST);
+    let expected = reference_function_num_bigint(&a, &b, &p, COST);
     let end = get_timestamp_now();
     console::log_1(
         &format!(
@@ -171,26 +241,29 @@ pub fn benchmark_bm17_simd_mont_mul() {
     let br: BigInt256 = biguint_to_bigint(&br);
     let p: BigInt256 = biguint_to_bigint(&p);
 
-    let mut x = ar.clone();
-    let mut y = br.clone();
-
     let start = get_timestamp_now();
-
-    for _ in 0..COST {
-        let z = bm17_simd_mont_mul(&x, &y, &p, mu);
-        x = y;
-        y = z;
-    }
-
+    let result = reference_function_bm17_simd(&ar, &br, &p, mu, COST);
     let end = get_timestamp_now();
-
-    let result = y.clone();
 
     assert_eq!(bigint_to_biguint(&result), expected);
 
     console::log_1(
         &format!(
             "{} Montgomery multiplications with BM17 SIMD took {} ms",
+            COST,
+            end - start,
+        ).into()
+    );
+
+    let start = get_timestamp_now();
+    let result = reference_function_bm17_non_simd(&ar, &br, &p, mu, COST);
+    let end = get_timestamp_now();
+
+    assert_eq!(bigint_to_biguint(&result), expected);
+
+    console::log_1(
+        &format!(
+            "{} Montgomery multiplications with BM17 (non-SIMD) took {} ms",
             COST,
             end - start,
         ).into()
