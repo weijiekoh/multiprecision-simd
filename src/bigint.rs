@@ -1,4 +1,68 @@
-use core::arch::wasm32::{v128, u32x4, u64x2, u64x2_add, u64x2_extract_lane, u64x2_replace_lane};
+use std::num::Wrapping;
+
+pub struct BigInt<const N: usize, const B: u32>(
+    #[doc(hidden)]
+    pub [u32; N],
+);
+
+// 8 * 32 = 256
+pub type BigInt256 = BigInt<8, 32>;
+
+/// Returns lhs > rhs.
+pub fn gt<const N: usize, const B: u32>(
+    lhs: &BigInt<N, B>,
+    rhs: &BigInt<N, B>,
+) -> bool {
+    for idx in 0..N {
+        let i = N - 1 - idx;
+        if lhs.0[i] < rhs.0[i] {
+            return false;
+        } else if lhs.0[i] > rhs.0[i] {
+            return true;
+        }
+    }
+    false
+}
+
+/// Returns the subtraction of rhs from lhs. lhs and rhs must have the same length. This function
+/// assumes that rhs is smaller than lhs. If this is not the case, the
+/// result will be incorrect.
+///
+/// # Arguments
+/// 
+/// * `lhs` - the left term (minuend)
+/// * `rhs` - the right term (subtrahend)
+pub fn sub<const N: usize, const B: u32>(
+    lhs: &BigInt<N, B>,
+    rhs: &BigInt<N, B>,
+) -> BigInt<N, B> {
+    let num_limbs = N;
+
+    let mut w_borrow = Wrapping(0u32);
+    let mut res = [0u32; N];
+
+    let two_pow_word_size = 2u64.pow(B);
+
+    for i in 0..num_limbs {
+        let w_lhs = Wrapping(lhs.0[i]);
+        let w_rhs = Wrapping(rhs.0[i]);
+
+        res[i] = (w_lhs - w_rhs - w_borrow).0;
+
+        if lhs.0[i] < (w_rhs + w_borrow).0 {
+            res[i] = (((Wrapping(res[i] as u64) + Wrapping(two_pow_word_size)).0) % 2u64.pow(32)) as u32;
+            w_borrow = Wrapping(1u32);
+        } else {
+            w_borrow = Wrapping(0u32);
+        }
+    }
+
+    BigInt::<N, B>(res)
+}
+
+
+/*
+use core::arch::wasm32::{v128, u32x4, u64x2, u64x2_add, u64x2_sub, u64x2_extract_lane, u64x2_replace_lane};
 use std::cmp::{PartialEq, Eq};
 use std::default::Default;
 
@@ -136,4 +200,45 @@ impl<const N: usize, const V: usize, const B: u32> BigInt<N, V, B> {
 
         res
     }
+
+    pub fn sub_without_carry(&self, other: &Self) -> Self {
+        let mut res = Self::default();
+
+        for i in 0..V {
+            res.0[i] = u64x2_sub(self.0[i], other.0[i]);
+        }
+
+        res
+    }
+
+    /// Subtract self to other and perform carries. Assumes that self is greater than other. If
+    /// not, the result will be incorrect.
+    pub fn sub(&self, other: &Self) -> Self {
+        let mut res = self.sub_without_carry(other);
+
+        let mut carry_0;
+        let mut carry_1 = 0u64;
+
+        let mask = Self::compute_mask();
+
+        for i in 0..V {
+            // Subtract and handle carry for the lower lane (lane 0)
+            let limb = u64x2_extract_lane::<0>(res.0[i]);
+            let diff = limb.wrapping_sub(carry_1);
+            let new_limb = diff & mask;
+            res.0[i] = u64x2_replace_lane::<0>(res.0[i], new_limb);
+            carry_0 = (limb < carry_1) as u64;
+
+            // Subtract and handle carry for the upper lane (lane 1)
+            let limb = u64x2_extract_lane::<1>(res.0[i]);
+            let diff = limb.wrapping_sub(carry_0);
+            let new_limb = diff & mask;
+            res.0[i] = u64x2_replace_lane::<1>(res.0[i], new_limb);
+
+            carry_1 = (limb < carry_0) as u64;
+        }
+
+        res
+    }
 }
+*/
