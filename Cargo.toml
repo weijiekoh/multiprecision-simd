@@ -28,7 +28,13 @@ num-traits = "0.2.18"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 getrandom = { version = "0.2", features = ["js"] }
+ark-bls12-377 = "0.4.0"
+ark-ff = "0.4.0"
 
 [profile.release]
 # Tell `rustc` to optimize for small code size.
-opt-level = "s"
+opt-level = 3
+
+[profile.dev]
+overflow-checks = false
+opt-level = "z"

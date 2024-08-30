@@ -1,5 +1,3 @@
-use std::num::Wrapping;
-
 #[derive(Copy, Clone)]
 pub struct BigInt<const N: usize, const B: u32>(
     #[doc(hidden)]
@@ -37,28 +35,21 @@ pub fn sub<const N: usize, const B: u32>(
     lhs: &BigInt<N, B>,
     rhs: &BigInt<N, B>,
 ) -> BigInt<N, B> {
-    let num_limbs = N;
+    let mut result = [0; N];
+    let mut borrow = 0;
+    let limb_mask = (1u64 << B) - 1;
 
-    let mut w_borrow = Wrapping(0u32);
-    let mut res = [0u32; N];
-
-    let two_pow_word_size = 2u64.pow(B);
-
-    for i in 0..num_limbs {
-        let w_lhs = Wrapping(lhs.0[i]);
-        let w_rhs = Wrapping(rhs.0[i]);
-
-        res[i] = (w_lhs - w_rhs - w_borrow).0;
-
-        if lhs.0[i] < (w_rhs + w_borrow).0 {
-            res[i] = (((Wrapping(res[i] as u64) + Wrapping(two_pow_word_size)).0) % 2u64.pow(32)) as u32;
-            w_borrow = Wrapping(1u32);
-        } else {
-            w_borrow = Wrapping(0u32);
-        }
+    for i in 0..N {
+        let lhs_limb = lhs.0[i] as u64;
+        let rhs_limb = rhs.0[i] as u64;
+        
+        let diff = lhs_limb.wrapping_sub(rhs_limb).wrapping_sub(borrow);
+        result[i] = (diff & limb_mask) as u32;
+        
+        borrow = (diff >> B) & 1;
     }
 
-    BigInt::<N, B>(res)
+    BigInt::<N, B>(result)
 }
 
 
