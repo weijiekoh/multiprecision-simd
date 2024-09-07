@@ -131,3 +131,43 @@ fn test_fig_4() {
     // (e.g. 48 bits).
 }
 
+/*
+use num_bigint::{BigUint, RandomBits};
+use crate::utils::gen_seeded_rng;
+use rand::Rng;
+
+const NUM_RUNS: u32 = 10;
+
+// This tests fails, which shows that Rust's f64::mul_add() rounding mode is not compatible with
+// Figure 4.
+#[test]
+#[wasm_bindgen_test]
+fn test_fuzz_fig_4() {
+    let limb_size = 26;
+
+    // Generate random pairs of f64s
+    // Compute the integer product (using int_full_product) and compare against the BigUint product
+    let mut rng = gen_seeded_rng(0);
+
+    for _ in 0..NUM_RUNS {
+        let a: BigUint = rng.sample(RandomBits::new(limb_size));
+        let b: BigUint = rng.sample(RandomBits::new(limb_size));
+        let expected = &a * &b;
+
+        //console::log_1(&format!("{:?}", a).into());
+        //console::log_1(&format!("{:?}", b).into());
+
+        let a = a.to_u64_digits()[0] as f64;
+        let b = b.to_u64_digits()[0] as f64;
+
+        let p = int_full_product(a, b);
+
+        let x = num_bigint::BigUint::from(2u32).pow(52u32);
+        let ph = num_bigint::BigUint::from(p.0);
+        let pl = num_bigint::BigUint::from(p.1);
+
+        //console::log_1(&format!("{:?}", p).into());
+        assert_eq!(x * ph + pl, expected)
+    }
+}
+*/
