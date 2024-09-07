@@ -22,7 +22,6 @@ fn full_product(a: f64, b: f64) -> (f64, f64) {
     (p_hi, p_lo)
 }
 
-/*
 #[test]
 #[wasm_bindgen_test]
 fn test_fig_2() {
@@ -85,7 +84,6 @@ fn test_fig_3() {
     //console::log_1(&format!("p1:  {:?}", p1).into());
     //console::log_1(&format!("sum: {:?}", sum).into());
 }
-*/
 
 fn int_full_product(a: f64, b: f64) -> (u64, u64) {
     // This code uses slightly different values: https://github.com/z-prize/2023-entries/blob/a568b9eb1e73615f2cee6d0c641bb6a7bc5a428f/prize-2-msm-wasm/prize-2b-twisted-edwards/yrrid-snarkify/yrrid/SupportingFiles/FP51.java#L47
