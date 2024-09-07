@@ -13,8 +13,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 fn fma_rz(a: f64, b: f64, c: f64) -> f64 {
     let r = a.mul_add(b, c);
-
-    r.trunc()
+    r
 }
 
 fn full_product(a: f64, b: f64) -> (f64, f64) {
@@ -89,13 +88,13 @@ fn test_fig_3() {
 */
 
 fn int_full_product(a: f64, b: f64) -> (u64, u64) {
-    // These values are not from the paper (which uses c1 = 2^104 and c2 = 2^104 + 2^52, but from
-    // https://github.com/z-prize/2023-entries/blob/a568b9eb1e73615f2cee6d0c641bb6a7bc5a428f/prize-2-msm-wasm/prize-2b-twisted-edwards/yrrid-snarkify/yrrid/SupportingFiles/FP51.java#L47
-    let c1 = 2f64.pow(103);
-    let c2 = 2f64.pow(103) + 3f64 * 2f64.pow(51);
+    // This code uses slightly different values: https://github.com/z-prize/2023-entries/blob/a568b9eb1e73615f2cee6d0c641bb6a7bc5a428f/prize-2-msm-wasm/prize-2b-twisted-edwards/yrrid-snarkify/yrrid/SupportingFiles/FP51.java#L47
+    //let c1 = 2f64.pow(103);
+    //let c2 = 2f64.pow(103) + 3f64 * 2f64.pow(51);
 
-    //let c1 = 2f64.pow(104);
-    //let c2 = 2f64.pow(104) + 2f64.pow(52);
+    // The paper uses c1 = 2^104 and c2 = 2^104 + 2^52
+    let c1 = 2f64.pow(104);
+    let c2 = 2f64.pow(104) + 2f64.pow(52);
 
     let mask = 2u64.pow(52) - 1;
 
@@ -109,16 +108,28 @@ fn int_full_product(a: f64, b: f64) -> (u64, u64) {
 #[test]
 #[wasm_bindgen_test]
 fn test_fig_4() {
-    let a = 4372088831f64;
-    let b = 4372087831f64;
+    let a = 211106232532993f64;
+    let b = 211106232532993f64;
 
     let p_hi = int_full_product(a, b);
 
-    console::log_1(&format!("Figure 4:").into());
-    console::log_1(&format!("p_hi:  {:?}", p_hi).into());
+    assert_eq!(p_hi.0, 9895604649984u64);
+    assert_eq!(p_hi.1, 422212465065985u64);
+
+    let a = num_bigint::BigUint::from(a as u64);
+    let b = num_bigint::BigUint::from(b as u64);
+    let m = &a * &b;
+
+    let x = num_bigint::BigUint::from(2u32).pow(52u32);
+    let ph = num_bigint::BigUint::from(p_hi.0);
+    let pl = num_bigint::BigUint::from(p_hi.1);
+
+    assert_eq!(x * ph + pl, m)
 
     // It appears that f64::mul_add() does not have the same round-to-zero behaviour as CUDA's
-    // __fma_rz. This causes an incorrect result. Apparently, the relaxed SIMD function
-    // f64x2_relaxed_madd() will work, but I'm having trouble getting it running in Rust. The next
-    // step should be to rewrite this in C.
+    // __fma_rz. This causes an incorrect result for 52-bit limbs. Apparently, the relaxed SIMD
+    // function f64x2_relaxed_madd() will work, but I'm having trouble getting it running in Rust.
+    // The next step is to find out if the rounding mode really matters for slightly smaller limbs
+    // (e.g. 48 bits).
 }
+
