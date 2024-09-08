@@ -120,10 +120,12 @@ pub unsafe fn mont_mul_cios<
     BigInt::<N, B>(res)
 }
 
+#[inline(always)]
 pub fn hi(v: u64) -> u64 {
     v >> 32
 }
 
+#[inline(always)]
 pub fn lo(v: u64) -> u64 {
     v & 0xffffffff
 }

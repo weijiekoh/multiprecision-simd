@@ -187,7 +187,7 @@ fn test_bm17_non_simd_mont_mul() {
     }
 }
 
-const COST: u32 = 2u32.pow(10);
+const COST: u32 = 2u32.pow(18);
 
 pub fn reference_function_num_bigint(
     a: &BigUint,
@@ -232,7 +232,7 @@ pub fn reference_function_bm17_non_simd(
     let mut x = ar.clone();
     let mut y = br.clone();
     for _ in 0..cost {
-        let z = unsafe {bm17_non_simd_mont_mul(&x, &y, &p, mu)};
+        let z = bm17_non_simd_mont_mul(&x, &y, &p, mu);
         x = y;
         y = z;
     }
