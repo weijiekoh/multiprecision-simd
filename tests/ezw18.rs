@@ -130,6 +130,87 @@ fn int_full_product(a: f64, b: f64) -> (u64, u64) {
     (p_hi.to_bits() & mask, p_lo.to_bits() & mask)
 }
 
+/// Adapted from https://github.com/z-prize/2023-entries/blob/a568b9eb1e73615f2cee6d0c641bb6a7bc5a428f/prize-2-msm-wasm/prize-2b-twisted-edwards/yrrid-snarkify/yrrid/SupportingFiles/FP51.java#L47
+/// a and b should have at most 51 bits.
+fn niall_full_product(a: f64, b: f64) -> (u64, u64) {
+    let mask = 2u64.pow(51) - 1;
+    //// c1 = 2^103
+    //// c2 = 2^103 + 3 * 2^51
+    //let c1: f64 = 2f64.powi(103i32);
+    let c1 = f64::from_bits(5071053180419178496u64);
+    let c2 = f64::from_bits(5071053180419178499u64);
+
+    let mut hi = a.mul_add(b, c1);
+    let sub = c2 - hi;
+    let mut lo = a.mul_add(b, sub);
+
+    // hi -= c1
+    // lo -= 3 * 2^51
+    let mut hi = hi.to_bits() - c1.to_bits();
+    let mut lo = lo.to_bits() - 0x4338000000000000u64;
+
+    // If the lower word is negative, subtract 1 from the higher word
+    if lo >> 63 == 1 {
+        hi -= 1;
+    }
+    lo = lo & mask;
+
+    (hi, lo)
+}
+
+#[test]
+#[wasm_bindgen_test]
+fn test_niall_zprize() {
+    let a = 55266722.0f64;
+    let b = 62775409.0f64;
+
+    let (hi, lo) = niall_full_product(a, b);
+    let a = num_bigint::BigUint::from(a as u64);
+    let b = num_bigint::BigUint::from(b as u64);
+    let expected = &a * &b;
+
+    let x = num_bigint::BigUint::from(2u32).pow(51u32);
+    let s = x * hi + lo;
+
+    //console::log_1(&format!("expected: {:?}", expected).into());
+    //console::log_1(&format!("integer:  {:?}", s).into());
+    assert_eq!(s, expected)
+}
+
+use num_bigint::{BigUint, RandomBits};
+use crate::utils::gen_seeded_rng;
+use rand::Rng;
+
+const NUM_RUNS: u32 = 10000;
+
+#[test]
+#[wasm_bindgen_test]
+fn test_niall_zprize_multi() {
+    let limb_size = 51;
+    let mut rng = gen_seeded_rng(0);
+
+    for _ in 0..NUM_RUNS {
+        let a: BigUint = rng.sample(RandomBits::new(limb_size));
+        let b: BigUint = rng.sample(RandomBits::new(limb_size));
+
+        let a = (a.to_u64_digits()[0] as f64).trunc();
+        let b = (b.to_u64_digits()[0] as f64).trunc();
+
+        let (hi, lo) = niall_full_product(a, b);
+        let a = num_bigint::BigUint::from(a as u64);
+        let b = num_bigint::BigUint::from(b as u64);
+        let expected = &a * &b;
+
+        let x = num_bigint::BigUint::from(2u32).pow(limb_size);
+        let s = x * hi + lo;
+
+        //console::log_1(&format!("expected: {:?}", expected).into());
+        //console::log_1(&format!("integer:  {:?}", s).into());
+        assert_eq!(s, expected)
+    }
+}
+
+/*
 #[test]
 #[wasm_bindgen_test]
 fn test_fig_4() {
@@ -138,12 +219,10 @@ fn test_fig_4() {
     let a = 55266722.0f64;
     let b = 62775409.0f64;
 
+    // c1 = 2^103
+    // c2 = 2^103 + 3 * 2^51
     let c1: f64 = 2f64.powi(103i32);
     let c2 = f64::from_bits(5071053180419178499u64);
-
-    //console::log_1(&format!("a: {:?}", a).into());
-    //console::log_1(&format!("b: {:?}", b).into());
-
     let hi = a.mul_add(b, c1);
     let sub = c2 - hi;
     let lo = a.mul_add(b, sub);
@@ -179,6 +258,7 @@ fn test_fig_4() {
     // The next step is to find out if the rounding mode really matters for slightly smaller limbs
     // (e.g. 48 bits).
 }
+*/
 
 /*
 use num_bigint::{BigUint, RandomBits};
