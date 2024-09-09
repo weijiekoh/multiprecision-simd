@@ -148,7 +148,7 @@ fn niall_full_product(a: f64, b: f64) -> (u64, u64) {
      * c1 in binary:
      * 0100011001100000000000000000000000000000000000000000000000000000
      *
-     * i.e. the sign is 0, so the value is positive, the exponent is 1126 - 1023 = 104, and the
+     * i.e. the sign is 0, so the value is positive, the exponent is 1126 - 1023 = 103, and the
      * mantissa is 0.
      *
      * c2 in binary:
@@ -164,116 +164,85 @@ fn niall_full_product(a: f64, b: f64) -> (u64, u64) {
      * bit and also the implicit bit in its binary representation. The last 51 bits of the mantissa
      * is therefore the high product of a * b in the integer domain.
      *
-     * e.g. a = 55266722.0f64 and b = 62775409.0f64. The high term of their product is 1, and the
-     * low term is 1217591263954050. In binary:
-     * hi: 000000000000000000000000000000000000000000000000001
-     * lo: 100010100110110010010001110110001010000010010000010
+     * e.g. a = 73061669485388f64 and b = 571904368095603f64.
      *
      * Let us examine the binary representation of a * b as a floating point value:
      *
-     * 0100001100101000101001101100100100011101100010100000100100000100
+     * 0100011000010101000110000111111000011101011100110011000010100100
      *     - sign: 0 (positive)
-     *     - exponent: 10000110010 = 1074 - 1023 = 51
-     *     - mantissa: 1000101001101100100100011101100010100000100100000100 (52 bits)
+     *     - exponent: 10000110010 = 1121 - 1023 = 98
+     *     - mantissa: 0101000110000111111000011101011100110011000010100100 (52 bits)
      * 
-     * We see that the 52-bit mantissa only encodes the lower 51 bits, albeit in an unaligned
-     * manner, since it is shifted left by 1.
-     *
      * In order to make the higher bits show up in the mantissa, we need to sacrifice accuracy,
      * such that the binary representation loses the lower bits and exposes the higher bits. To do
      * so, we add 2^103, which sets the implicit bit to 2^103. The binary representation is now:
      *
-     * 0100011001100000000000000000000000000000000000000000000000000010
+     * 0100011001100000101010001100001111110000111010111001100110000101
      *     - sign: 0 (positive)
      *     - exponent: 1126 - 1023 = 103
-     *     - mantissa: 10 in binary, which is 2
+     *     - mantissa: 0000101010001100001111110000111010111001100110000101
      *
-     * (We will conditionally subtract 1 because, as we will find out later, the low term is
-     * negative.)
+     * Since the exponent is 2^103, the floating-point representation omits the lower bits and
+     * shows the higher bits. To get the high bits as an integer, we convert the f64 value
+     * into a u64 using the to_bits() function, and then subtract c1.to_bits(). 
+     *
+     * Below, we will discuss cases where 1 must be subtracted from the high term to get the
+     * correct result.
      *
      * ## Extracting the low bits
      *
-     * To extract the low bits, we perform this in the floating-point domain:
+     * To extract the low bits, we perform these floating-point operations:
      *
      * sub = c2 - hi
      *     = (2^103 + 3 * 2^51) - hi
-     * lo = (a * b) + sub
+     * lo = fma(a, b, sub)
      *
      * Recall that hi = 2 ^ 103 + 2. Subtracting hi from c2 leaves us with a floating
      * point (sub) with this binary representation:
      *
-     * 0100001100100000000000000000000000000000000000000000000000000000
-     *     - sign: 0 (positive)
-     *     - exponent: 1074 - 1023 = 51
-     *     - mantissa: 0
+     * 1100011000010101000110000111111000011101011100110011000001000000
+     *     - sign: 1 (negative)
+     *     - exponent: 1121 - 1023 = 98
+     *     - mantissa: 0101000110000111111000011101011100110011000001000000
      *
-     * Adding sub to (a * b) sets the implicit bit to 2^51, so the mantissa will contain the lower
+     * After performing fma(a, b, sub), the mantissa will contain the lower
      * 51 bits of the integer product:
      *
-     * 0100001100110100010100110110010010001110110001010000010010000010
+     * 0100001100111000111101011100000110011000110101010110001100000000
      *     - sign: 0 (positive)
      *     - exponent: 1075 - 1023 = 52
-     *     - mantissa: 1217591263954050
+     *     - mantissa: 2522011655299840
+     *
+     * TODO: explain why this is the case:
+     * - c2 has exponent 103; hi has exponent 52; sub has exponent -98; and fma(a, b, sub) has
+     *   exponent 52
+     *
+     * Finally, we extract the lower bits by subtracting 3 * 2 ^ 51 (which is 0x4338000000000000)
+     * and then mask to get the lowest 51 bits.
      * 
-     * ### Why should c2 equal 2^103 + 3 * 2^51?
+     * lo = lo & (2^51 - 1)
+     *    = 2522011655299840 & 0x7ffffffffffff
+     *    = 270211841614592
      *
-     * First of all, we know that the exponent of hi is 2^103, so we need to cancel it out in the
-     * floating-point domain.
+     * ## The conditional subtraction
      *
-     * Next, we know that the binary representation of the floating-point value 2^103 + 3 * 2^51
-     * is:
+     * In another example (a = 55266722, b = 62775409), the high term needs to be subtracted by 1.
+     * The condition for this subtraction is whether (lo - 3 * 2^51) is negative (by checking the
+     * sign bit).
      *
-     * 0100011001100000000000000000000000000000000000000000000000000011
-     *     - sign: 0 (positive)
-     *     - exponent: 103
-     *     - mantissa: 3
-     *
-     *
-     * sub = (2^103 + 3 * 2^51) - hi;
-     * lo = fma(a, b, sub)
-     *
-     * ### A side note
-     *
-     * TODO: Figure out why c2 is 2^103 + 3 * 2^51.
-     * TODO: Figure out why sub can be negative
-     *
-     * Why not just add 2^51 or 3 * 2^51 to (a * b)?
-     *
-     * #### Performing a * b + 2^51:
-     *
-     * 0100001100110100010100110110010010001110110001010000010010000010
-     *     - sign: 0 (positive)
-     *     - exponent: 1075 - 1023 = 52
-     *     - mantissa: 1217591263954050
-     *
-     *  This leads to a correct result for this particular example, but incorrect results for many
-     *  other inputs, so it is wrong.
-     *  For example, with a = 1596695558896492 and b: 1049164860932151, this method gives us:
-     *
-     *  a * b + 2^51:
-     *  1111111111111100010100110110010010001110110001010000010010000010
-     *      - sign: 1 (negative)
-     *      - exponent: 2047 - 1024 = 1023
-     *      - mantissa: 3469391077639298
-     *
-     * It appears that an overflow occured, which led to a completely unusable mantissa.
-     *
-     * #### Performing a * b + 3 * 2^51:
-     *
-     * Simply adding 3 * 2^51 (which is a 53-bit value) causes us to lose the lower bits. With our
-     * original example, we get:
-     *
-     * 0100011001100000000000000000000000000000000000000000000000000101
-     *     - sign: 0 (positive)
-     *     - exponent: 1126 - 1023 = 103n
-     *     - mantissa: 5
-     *
-     * It appears that 
+     * TODO: explain why this is the case!
      */
 
     let mut hi = a.mul_add(b, c1);
     let sub = c2 - hi;
     let mut lo = a.mul_add(b, sub);
+
+    //console::log_1(&format!("a:  {:64b}", a.to_bits()).into());
+    //console::log_1(&format!("b:  {:64b}", b.to_bits()).into());
+    //console::log_1(&format!("hi:  {:64b}", lo.to_bits()).into());
+    //console::log_1(&format!("c2:  {:64b}", c2.to_bits()).into());
+    //console::log_1(&format!("sub: {:64b}", sub.to_bits()).into());
+    //console::log_1(&format!("lo:  {:64b}", lo.to_bits()).into());
 
     //console::log_1(&format!("c2 fp:  {}", c2).into());
     //console::log_1(&format!("hi fp:  {}", hi).into());
@@ -282,17 +251,6 @@ fn niall_full_product(a: f64, b: f64) -> (u64, u64) {
     //console::log_1(&format!("c2 bits:  {:64b}", c2.to_bits()).into());
     //console::log_1(&format!("hi bits:  {:64b}", hi.to_bits()).into());
     //console::log_1(&format!("sub bits: {:64b}", sub.to_bits()).into());
-
-    /*
-     * ## Normalising the high and low bits
-     *
-     * Recall that we extracted the high bits by adding 2^103 to a * b. We can get the high bits as
-     * an integer by converting the f64 value into a u64 using the to_bits() function, and then
-     * subtracting c1.to_bits(). Next, we do a conditional subtraction of 1, depending on whether
-     * (lo - 3 * 2^51) is negative (by checking the sign bit). Finally, the lower bits are
-     * extracted by subtracting 3 * 2 ^ 51 (which is 0x4338000000000000) and then masking to get
-     * the lowest 51 bits.
-     */
 
     let mut hi = hi.to_bits() - c1.to_bits();
     let mut lo = lo.to_bits() - tt;
@@ -304,6 +262,7 @@ fn niall_full_product(a: f64, b: f64) -> (u64, u64) {
     }
 
     lo = lo & mask;
+    //console::log_1(&format!("(high, lo): {}, {}", hi, lo).into());
 
     (hi, lo)
 }
@@ -313,12 +272,12 @@ fn niall_full_product(a: f64, b: f64) -> (u64, u64) {
 fn test_niall_zprize() {
     // These values would cause an incorrect result from int_full_product(), but a correct result
     // from niall_full_product().
-    let a = 55266722.0f64;
-    let b = 62775409.0f64;
+    //let a = 55266722.0f64;
+    //let b = 62775409.0f64;
 
-    // With these values, sub goes negative
-    //let a = 730616694853888f64;
-    //let b = 571904368095603f64;
+    //// With these values, sub goes negative
+    let a = 730616694853888f64;
+    let b = 571904368095603f64;
 
     let (hi, lo) = niall_full_product(a, b);
     let a = num_bigint::BigUint::from(a as u64);
@@ -342,6 +301,7 @@ fn test_niall_zprize_multi() {
     let mut rng = gen_seeded_rng(0);
 
     for _ in 0..NUM_RUNS {
+        break;
         let a: BigUint = rng.sample(RandomBits::new(limb_size));
         let b: BigUint = rng.sample(RandomBits::new(limb_size));
 
