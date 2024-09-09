@@ -117,6 +117,25 @@ fn int_full_product(a: f64, b: f64) -> (u64, u64) {
     (p_hi.to_bits() & mask, p_lo.to_bits() & mask)
 }
 
+fn print_f64(label: &str, a: f64) {
+    let bits = a.to_bits();
+    
+    // Extract the sign bit (most significant bit)
+    let sign = (bits >> 63) & 1;
+    
+    // Extract the exponent bits (next 11 bits)
+    let exponent = ((bits >> 52) & 0x7FF) as i16;
+    
+    // Subtract the bias (1023) from the exponent
+    let unbiased_exponent = exponent - 1023;
+    
+    // Extract the mantissa bits (last 52 bits)
+    let mantissa = bits & 0x000F_FFFF_FFFF_FFFF;
+
+    // Print the components
+    console::log_1(&format!("{}: ({}, {}, 0x{:013X})", label, sign, unbiased_exponent, mantissa).into());
+}
+
 /// In Zprize 2023, Emmart found a way to use f64s in WASM (to be precise, dual-lane f64 relaxed
 /// SIMD values) to perform multiprecision arithmetic with 51-bit limbs.
 /// This function modifies int_full_product() of EZW18 with his technique.
@@ -125,18 +144,6 @@ fn int_full_product(a: f64, b: f64) -> (u64, u64) {
 /// Adapted from https://github.com/z-prize/2023-entries/blob/a568b9eb1e73615f2cee6d0c641bb6a7bc5a428f/prize-2-msm-wasm/prize-2b-twisted-edwards/yrrid-snarkify/yrrid/SupportingFiles/FP51.java#L47
 /// a and b should have at most 51 bits.
 fn niall_full_product(a: f64, b: f64) -> (u64, u64) {
-    let mask = 2u64.pow(51) - 1;
-    //// c1 = 2^103
-    //// c2 = 2^103 + 3 * 2^51
-
-    //let c1 = f64::from_bits(0x4660000000000000u64);
-    //let c2 = f64::from_bits(0x4660000000000003u64);
-    //let tt = 0x4338000000000000u64;
-
-    let c1: f64 = 2f64.powi(103i32);
-    let c2: f64 = c1.add(2f64.powi(51i32).mul(3f64));
-    let tt = 2f64.powi(51i32).mul(3f64).to_bits();
-
     /*
      * ## Introduction to 64-bit floating-point values
      *
@@ -230,12 +237,65 @@ fn niall_full_product(a: f64, b: f64) -> (u64, u64) {
      * The condition for this subtraction is whether (lo - 3 * 2^51) is negative (by checking the
      * sign bit).
      *
-     * TODO: explain why this is the case!
+     * ## The final normalisation steps
+     *
+     * To normalise the high term, we simply compute hi.to_bits() - c1.to_bits(). This works
+     * because the first 12 bits of hi equal that of c1, while the remaining bits of c1 are all 0.
+     *
+     * A conditional subtraction may then be needed, as described below.
+     *
+     * To normalise the low bits, compute lo.to_bits() - (3 * 2^51).to_bits(). Recall that 3 * 2^51
+     * as a floating-point value is positive, with an exponent of 52, and a mantissa of
+     * 0x8000000000000 (which is 2^51).
+     *
+     * Since the exponent of lo is also 52, this operation
+     * produces the subtraction of 2^51 from the 52-bit mantissa of lo. Finally, a 51-bit mask is
+     * applied to obtain the lower 51 bits.
+     *
+     * e.g.:
+     *
+     * c1: (0, 103, 0000000000000)
+     * c2: (0, 103, 0000000000003)
+     * tt: (0, 52, 8000000000000)
+     * hi : (0, 103, 0A8C3F0EB9985)
+     * sub: (1, 98, 5187E1D733040)
+     * lo : (0, 52, 8F5C198D56300)
+     * (high, lo): 0A8C3F0EB9985, 0F5C198D56300
+     *
+     * If lo is smaller than 2^51, then an overflow will occur, causing the 64th bit of
+     * lo.to_bits() - tt.to_bits() to equal 1. In this case, we subtract (aka borrow) 1 from the
+     * high term, a la grade-school subtraction.
      */
 
+    let mask = 2u64.pow(51) - 1;
+    //// c1 = 2^103
+    //// c2 = 2^103 + 3 * 2^51
+
+    //let c1 = f64::from_bits(0x4660000000000000u64);
+    //let c2 = f64::from_bits(0x4660000000000003u64);
+    //let tt = 0x4338000000000000u64;
+
+    let c1: f64 = 2f64.powi(103i32);
+    let c2: f64 = c1.add(2f64.powi(51i32).mul(3f64));
+    let tt: f64 = 2f64.powi(51i32).mul(3f64);
+
+    print_f64("c1", c1);
+    print_f64("c2", c2);
+    console::log_1(&format!("c2: {:064b}", c2.to_bits()).into());
+    print_f64("tt", tt);
+    console::log_1(&format!("tt: {:064b}", tt.to_bits()).into());
+
+    let tt: u64 = tt.to_bits();
+
     let mut hi = a.mul_add(b, c1);
+    print_f64("hi ", hi);
+    console::log_1(&format!("hi: {:064b}", hi.to_bits()).into());
+
     let sub = c2 - hi;
+    print_f64("sub", sub);
+
     let mut lo = a.mul_add(b, sub);
+    print_f64("lo ", lo);
 
     //console::log_1(&format!("a:  {:64b}", a.to_bits()).into());
     //console::log_1(&format!("b:  {:64b}", b.to_bits()).into());
@@ -262,7 +322,7 @@ fn niall_full_product(a: f64, b: f64) -> (u64, u64) {
     }
 
     lo = lo & mask;
-    //console::log_1(&format!("(high, lo): {}, {}", hi, lo).into());
+    console::log_1(&format!("(high, lo): {:013X}, {:013X}", hi, lo).into());
 
     (hi, lo)
 }
@@ -293,7 +353,7 @@ fn test_niall_zprize() {
 }
 
 /// Run tests for niall_full_product() on a large number of random inputs.
-const NUM_RUNS: u32 = 1000;
+const NUM_RUNS: u32 = 3;
 #[test]
 #[wasm_bindgen_test]
 fn test_niall_zprize_multi() {
@@ -301,12 +361,11 @@ fn test_niall_zprize_multi() {
     let mut rng = gen_seeded_rng(0);
 
     for _ in 0..NUM_RUNS {
-        break;
         let a: BigUint = rng.sample(RandomBits::new(limb_size));
         let b: BigUint = rng.sample(RandomBits::new(limb_size));
 
-        let a = (a.to_u64_digits()[0] as f64).trunc();
-        let b = (b.to_u64_digits()[0] as f64).trunc();
+        let a = a.to_u64_digits()[0] as f64;
+        let b = b.to_u64_digits()[0] as f64;
 
         //console::log_1(&format!("a: {}", a).into());
         //console::log_1(&format!("b: {}", b).into());
@@ -321,6 +380,7 @@ fn test_niall_zprize_multi() {
 
         //console::log_1(&format!("expected: {:?}", expected).into());
         //console::log_1(&format!("integer:  {:?}", s).into());
-        assert_eq!(s, expected)
+        assert_eq!(s, expected);
+        console::log_1(&format!("").into());
     }
 }
