@@ -1,7 +1,31 @@
+/// Stores limbs as f64s
+/// N: the number of limbs
+/// B: the number of bits per limb
+#[derive(Copy, Clone)]
+pub struct BigIntF<const N: usize, const B: u32>(
+    #[doc(hidden)]
+    pub [f64; N],
+);
+
+// 5 * 51 = 255
+pub type BigIntF255 = BigIntF<5, 51>;
+
+/// Stores limbs as u32s
+/// N: the number of limbs
+/// B: the number of bits per limb
 #[derive(Copy, Clone)]
 pub struct BigInt<const N: usize, const B: u32>(
     #[doc(hidden)]
     pub [u32; N],
+);
+
+/// Stores limbs as u64s
+/// N: the number of limbs
+/// B: the number of bits per limb
+#[derive(Copy, Clone)]
+pub struct BigInt64<const N: usize, const B: u32>(
+    #[doc(hidden)]
+    pub [u64; N],
 );
 
 // 8 * 32 = 256
@@ -22,6 +46,26 @@ pub fn gt<const N: usize, const B: u32>(
     }
     false
 }
+
+pub unsafe fn bigintf_sub<
+    const N: usize,
+    const B: u32
+>(
+    a: &BigIntF<N, B>,
+    b: &BigIntF<N, B>,
+) -> BigIntF<N, B> {
+    let mut res = [0f64; N];
+    for i in 0..N {
+        res[i] = f64::from_bits(
+            (
+                (a.0[i].to_bits() as i64) - 
+                (b.0[i].to_bits() as i64)
+            ) as u64
+        );
+    }
+    BigIntF::<N, B>(res)
+}
+
 
 /// Returns the subtraction of rhs from lhs. lhs and rhs must have the same length. This function
 /// assumes that rhs is smaller than lhs. If this is not the case, the

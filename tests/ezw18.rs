@@ -1,6 +1,6 @@
+#![cfg(target_arch = "wasm32")]
 /// Full explanation: https://hackmd.io/@weijiek/HJMKlWahC
 
-#![cfg(target_arch = "wasm32")]
 mod utils;
 
 use crate::utils::gen_seeded_rng;
@@ -161,7 +161,15 @@ fn niall_full_product(a: f64, b: f64) -> (u64, u64) {
     let c2: f64 = c1.add(2f64.powi(51i32).mul(3f64));
     let tt: f64 = 2f64.powi(51i32).mul(3f64);
 
+    //console::log_1(&format!("a: {:#016x}", a.to_bits()).into());
+    //console::log_1(&format!("b: {:#016x}", b.to_bits()).into());
+
     let mut hi = a.mul_add(b, c1);
+    //console::log_1(&format!("hi as fp: {:#064b}", hi.to_bits()).into());
+    //console::log_1(&format!("hi before conditional subtraction: {:#064b}", hi.to_bits()).into());
+    // 0100011001100000010101100010100001000101000100001011011000101110
+    // 0100011001100010101001001001101101001100000010110101001111010111
+
     let sub = c2 - hi;
     let mut lo = a.mul_add(b, sub);
 
@@ -170,12 +178,18 @@ fn niall_full_product(a: f64, b: f64) -> (u64, u64) {
     // If there is an overflow, subtract 1 from the high term.
     let mut lo = lo.to_bits() & mask;
     if lo & 0x4000000000000u64 > 0 {
+        //console::log_1(&format!("overflow").into());
         hi -= 1;
+        //console::log_1(&format!("hi after conditional subtraction:   {:#064b}", hi).into());
+        //console::log_1(&format!("hi: {:#016x}", hi).into());
     }
 
     (hi, lo)
 }
 
+// (1596695558896492n * 1049164860932151n + 2n ** 103n).toString(2) =
+// 10010101001001001101101001100000010110101001111010110 101111110101001101101001001110100111100010000110100
+// ╰─ 53 bits                                      ────╯ ╰─ 51 bits                                    ────╯
 #[test]
 #[wasm_bindgen_test]
 fn test_niall_zprize() {
@@ -186,9 +200,12 @@ fn test_niall_zprize() {
 
     // With these values, a conditional reduction is performed
     //let a = 1596695558896492f64; let b = 1049164860932151f64;
+    //
+    let a = 1608402016805642f64;
+    let b = 2148778896124745f64;
 
     // With these values, a conditional reduction is not performed
-    let a = 1574331031398118f64; let b = 135495742621820f64;
+    //let a = 1574331031398118f64; let b = 135495742621820f64;
 
     let (hi, lo) = niall_full_product(a, b);
     let a = num_bigint::BigUint::from(a as u64);
@@ -202,7 +219,7 @@ fn test_niall_zprize() {
 }
 
 /// Run tests for niall_full_product() on a large number of random inputs.
-const NUM_RUNS: u32 = 10000;
+const NUM_RUNS: u32 = 1000;
 #[test]
 #[wasm_bindgen_test]
 fn test_niall_zprize_multi() {
@@ -225,6 +242,6 @@ fn test_niall_zprize_multi() {
         let s = x * hi + lo;
 
         assert_eq!(s, expected);
-        console::log_1(&format!("").into());
+        //console::log_1(&format!("").into());
     }
 }

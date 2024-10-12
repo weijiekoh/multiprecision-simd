@@ -1,5 +1,378 @@
 use core::arch::wasm32;
-use crate::bigint::{BigInt, gt, sub};
+use crate::bigint::{BigInt, BigIntF, gt, sub, bigintf_sub};
+
+use web_sys::console;
+
+pub unsafe fn msl_is_greater<
+    const N: usize,
+    const B: u32
+>(
+    val: &BigIntF<N, B>,
+    p: &BigIntF<N, B>,
+) -> bool {
+    val.0[N - 1] > p.0[N - 1]
+}
+
+// In practice, we should look up from an array of multiples of P at index q, and subtract that
+// from val.
+// This function may fail for around 1% of inputs - in such cases, an explicit conditional
+// subtraction step is needed.
+pub unsafe fn reduce_bigintf<
+    const N: usize,
+    const B: u32
+>(
+    val: &BigIntF<N, B>,
+    p: &BigIntF<N, B>,
+) -> BigIntF<N, B> {
+    if msl_is_greater(val, p) {
+        return bigintf_sub(val, p);
+    }
+    *val
+    /*
+    let highest = val.0[N - 1];
+
+    let q = (((highest.to_bits() as i64) * 0x1b6c as i64) >> 61usize) as u64;
+
+    if q > 0 {
+        return bigintf_sub(val, p);
+    }
+    return *val;
+    */
+}
+
+pub unsafe fn resolve_bigintf<
+    const N: usize,
+    const N_MINUS_2: usize,
+    const B: u32
+>(
+    val: &BigIntF<N, B>
+) -> BigIntF<N, B> {
+    let mask = 0x7ffffffffffffu64;
+    let mut local = [0u64; N_MINUS_2];
+    let mut res = [0f64; N];
+
+    /*
+    local[0]=i64x2_add(val[1], i64x2_shr(val[0], 51));
+    local[1]=i64x2_add(val[2], i64x2_shr(local[0], 51));
+    local[2]=i64x2_add(val[3], i64x2_shr(local[1], 51));
+    res[4]  =i64x2_add(val[4], i64x2_shr(local[2], 51));
+
+    res[0]=i64x2_and(val[0], mask);
+    res[1]=i64x2_and(local[0], mask);
+    res[2]=i64x2_and(local[1], mask);
+    res[3]=i64x2_and(local[2], mask);
+    */
+
+    local[0] = val.0[1].to_bits() + ((val.0[0].to_bits() as i64) >> B) as u64;
+    local[1] = val.0[2].to_bits() + ((local[0] as i64) >> B) as u64;
+    local[2] = val.0[3].to_bits() + ((local[1] as i64) >> B) as u64;
+    res[4]   = f64::from_bits(val.0[4].to_bits() + ((local[2] as i64) >> B) as u64);
+
+    //console::log_1(&format!("{:016x}", val.0[4].to_bits()).into());
+    //console::log_1(&format!("local[2]       {:016x}", local[2]).into());
+    //console::log_1(&format!("local[2] >> {} {:016x}", B, ((local[2] as i64) >> B) as u64).into());
+    //console::log_1(&format!("{:016x}", res[4].to_bits()).into());
+
+    res[0] = f64::from_bits(val.0[0].to_bits() & mask);
+    res[1] = f64::from_bits(local[0]           & mask);
+    res[2] = f64::from_bits(local[1]           & mask);
+    res[3] = f64::from_bits(local[2]           & mask);
+
+    /*
+    local[0] = val.0[1].to_bits() + (val.0[0].to_bits() >> B);
+
+    for i in 1..N_MINUS_2 {
+        local[i] = val.0[i + 1].to_bits() + (local[i - 1] >> B);
+    }
+
+    res[N - 1] = f64::from_bits(val.0[N - 1].to_bits() + (local[N_MINUS_2 - 1] >> 51));
+
+    res[0] = f64::from_bits(val.0[0].to_bits() & mask);
+
+    for i in 1..N - 1 {
+        res[i] = f64::from_bits(local[i - 1] & mask);
+    }
+    */
+
+    BigIntF::<N, B>(res)
+}
+
+pub unsafe fn mont_mul_cios_f64_no_simd<
+    const N: usize,
+    const N_PLUS_1: usize,
+    const N_PLUS_2: usize,
+    const N_TIMES_2_PLUS_1: usize,
+    const B: u32
+>(
+    ar_51: &BigIntF<N, B>,
+    br_51: &BigIntF<N, B>,
+    p_51: &BigIntF<N, B>,
+    n0: u64,
+) -> BigIntF<N, B> {
+    let mut sum_h = [0u64; N_TIMES_2_PLUS_1];
+    sum_h[0]=0x7990000000000000u64;
+    sum_h[1]=0x6660000000000000u64;
+    sum_h[2]=0x5330000000000000u64;
+    sum_h[3]=0x4000000000000000u64;
+    sum_h[4]=0x2CD0000000000000u64;
+    sum_h[5]=0x26800000000000u64;
+    sum_h[6]=0x39B0000000000000u64;
+    sum_h[7]=0x4CE0000000000000u64;
+    sum_h[8]=0x6010000000000000u64;
+    sum_h[9]=0x7340000000000000u64;
+    let mut sum_l = [0u64; N_TIMES_2_PLUS_1];
+    sum_l[0]=0x7990000000000000u64;
+    sum_l[1]=0x6660000000000000u64;
+    sum_l[2]=0x5330000000000000u64;
+    sum_l[3]=0x4000000000000000u64;
+    sum_l[4]=0x2CD0000000000000u64;
+    sum_l[5]=0x2680000000000000u64;
+    sum_l[6]=0x39B0000000000000u64;
+    sum_l[7]=0x4CE0000000000000u64;
+    sum_l[8]=0x6010000000000000u64;
+    sum_l[9]=0x7340000000000000u64;
+
+    let c0 =                   0x7ffffffffffffu64;
+    let c1 = f64::from_bits(0x4330000000000000u64);
+    let c2 = c1;
+    let c3 = f64::from_bits(0x4660000000000000u64);
+    let c4 = f64::from_bits(0x4660000000000003u64);
+
+    let mut p = [0f64; N];
+    for i in 0..N {
+        p[i] = p_51.0[i] as f64;
+    }
+
+    let mut l = [0f64; N];
+    let mut h = [0f64; N];
+    for i in 0..N {
+        for j in 0..N {
+            l[j] = ar_51.0[i].mul_add(br_51.0[j], c3);
+            h[j] = c3;
+            //console::log_1(&format!("lh: {:016x} {:016x}", l[j].to_bits(), h[j].to_bits()).into());
+        }
+
+        for j in 0..N {
+            /*
+            console::log_1(
+                &format!(
+                    "sum_l[{}] + l[{}] = {:016x} + {:016x} = {:016x}", 
+                    j + 1,
+                    j,
+                    sum_l[j + 1] as i64,
+                    l[j].to_bits() as i64,
+                    (sum_l[j + 1] as i64 + l[j].to_bits() as i64) as u64,
+                ).into()
+            );
+            */
+
+            sum_l[j + 1] = (sum_l[j + 1] as i64 + l[j].to_bits() as i64) as u64;
+            sum_h[j + 1] = (sum_h[j + 1] as i64 + h[j].to_bits() as i64) as u64;
+
+            //console::log_1(&format!("lh[{j}]: {:016x} {:016x}", l[j].to_bits(), h[j].to_bits()).into());
+            //console::log_1(&format!("sum[{j}]: {:016x} {:016x}", sum_l[j], sum_h[j]).into());
+        }
+
+        for j in 0..N {
+            l[j] = c4 - l[j];
+            h[j] = c4 - h[j];
+        }
+
+        for j in 0..N {
+            l[j] = ar_51.0[i].mul_add(br_51.0[j], l[j]);
+        }
+
+        for j in 0..N {
+            sum_l[j] = (sum_l[j] as i64 + l[j].to_bits() as i64) as u64;
+            sum_h[j] = (sum_h[j] as i64 + h[j].to_bits() as i64) as u64;
+            //console::log_1(&format!("sum: {:016x} {:016x}", sum_l[j], sum_h[j]).into());
+        }
+
+        let q_l = sum_l[0] * n0;
+        let q_h = sum_h[0] * n0;
+
+        //console::log_1(&format!("q_l: {:016x}; q_h: {:016x}", q_l, q_h).into());
+        let term_l = f64::from_bits((((q_l & c0) as i64) + (c1.to_bits() as i64)) as u64) - c2;
+        let term_h = f64::from_bits((((q_h & c0) as i64) + (c1.to_bits() as i64)) as u64) - c2;
+
+        //console::log_1(&format!("term_l: {:016x}; term_h: {:016x}", term_l.to_bits(), term_h.to_bits()).into());
+        for j in 0..N {
+            l[j] = term_l.mul_add(p[j], c3);
+            h[j] = term_h.mul_add(p[j], c3);
+        }
+
+        for j in 0..N {
+            sum_l[j + 1] = (sum_l[j + 1] as i64 + l[j].to_bits() as i64) as u64;
+            sum_h[j + 1] = (sum_h[j + 1] as i64 + h[j].to_bits() as i64) as u64;
+            //console::log_1(&format!("sum: {:016x} {:016x}", sum_l[j], sum_h[j]).into());
+        }
+
+        for j in 0..N {
+            l[j] = c4 - l[j];
+            h[j] = c4 - h[j];
+        }
+
+        for j in 0..N {
+            l[j] = term_l.mul_add(p[j], l[j]);
+            h[j] = term_h.mul_add(p[j], h[j]);
+            //console::log_1(&format!("lh: {:016x} {:016x}", l[j].to_bits(), h[j].to_bits()).into());
+        }
+
+        sum_l[0] = ((sum_l[0] as i64) + (l[0].to_bits() as i64)) as u64;
+        sum_h[0] = ((sum_h[0] as i64) + (h[0].to_bits() as i64)) as u64;
+
+        sum_l[1] = ((sum_l[1] as i64) + (l[1].to_bits() as i64)) as u64;
+        sum_h[1] = ((sum_h[1] as i64) + (h[1].to_bits() as i64)) as u64;
+
+        sum_l[0] = ((sum_l[1] as i64) + ((sum_l[0] as i64) >> 51) as i64) as u64;
+        sum_h[0] = ((sum_h[1] as i64) + ((sum_h[0] as i64) >> 51) as i64) as u64;
+
+        for j in 1..N - 1 {
+            sum_l[j] = ((sum_l[j + 1] as i64) + (l[j + 1].to_bits() as i64)) as u64;
+            sum_h[j] = ((sum_h[j + 1] as i64) + (h[j + 1].to_bits() as i64)) as u64;
+        }
+
+        sum_l[4] = sum_l[5];
+        sum_h[4] = sum_h[5];
+
+        sum_l[5] = sum_l[i + 6];
+        sum_h[5] = sum_h[i + 6];
+
+        //for j in 0..N {
+            //console::log_1(&format!("sum: {:016x} {:016x}", sum_l[j], sum_h[j]).into());
+        //}
+        /*
+        */
+    }
+
+    let mut res = [0f64; N];
+    for i in 0..N {
+        res[i] = f64::from_bits(sum_l[i]);
+    }
+    BigIntF::<N, B>(res)
+}
+
+/*
+#[cfg(all(feature = "simd", target_feature = "simd128"))]
+#[target_feature(enable = "relaxed-simd")]
+pub unsafe fn mont_mul_cios_f64_simd<
+    const N: usize,
+    const N_PLUS_1: usize,
+    const N_PLUS_2: usize,
+    const N_TIMES_2: usize,
+    const B: u32
+>(
+    ar_51: &BigIntF<N, B>,
+    br_51: &BigIntF<N, B>,
+    p_51: &BigIntF<N, B>,
+    n0: u64,
+) -> [wasm32::v128; N] {
+    let zero = wasm32::u64x2_splat(0);
+    let mut bd = [zero; N];
+    let mut p = [zero; N];
+
+    // Assign bd and p
+    for i in 0..N {
+        bd[i] = wasm32::f64x2_splat(br_51.0[i]);
+        p[i] = wasm32::f64x2_splat(p_51.0[i]);
+    }
+
+    let mut sum = [zero; N_TIMES_2];
+    // Niall's magic numbers
+    sum[0]=wasm32::u64x2_splat(0x7990000000000000u64);
+    sum[1]=wasm32::u64x2_splat(0x6660000000000000u64);
+    sum[2]=wasm32::u64x2_splat(0x5330000000000000u64);
+    sum[3]=wasm32::u64x2_splat(0x4000000000000000u64);
+    sum[4]=wasm32::u64x2_splat(0x2CD0000000000000u64);
+    sum[5]=wasm32::u64x2_splat(0x2680000000000000u64);
+    sum[6]=wasm32::u64x2_splat(0x39B0000000000000u64);
+    sum[7]=wasm32::u64x2_splat(0x4CE0000000000000u64);
+    sum[8]=wasm32::u64x2_splat(0x6010000000000000u64);
+    sum[9]=wasm32::u64x2_splat(0x7340000000000000u64);
+    //sum[10]=wasm32::u64x2_splat(0);
+
+    let c0 = wasm32::u64x2_splat(0x7fffffffffffffu64);
+    let c1 = wasm32::u64x2_splat(0x4330000000000000u64);
+    let c2 = c1;
+    let c3 = wasm32::u64x2_splat(0x4660000000000000u64);
+    let c4 = wasm32::u64x2_splat(0x4660000000000003u64);
+
+    let mut term = wasm32::u64x2_splat(0);
+    let mut lh = [zero; N];
+    for i in 0..N {
+        term = wasm32::f64x2(ar_51.0[i], 0f64);
+
+        for j in 0..N {
+            lh[j] = wasm32::f64x2_relaxed_madd(term, bd[j], c3);
+        }
+
+        for j in 0..N {
+            sum[j + 1] = wasm32::f64x2_add(sum[j + 1], lh[j]);
+        }
+
+        for j in 0..N {
+            lh[j] = wasm32::f64x2_sub(c4, lh[j]);
+        }
+
+        for j in 0..N {
+            lh[j] = wasm32::f64x2_relaxed_madd(term, bd[j], lh[j]);
+        }
+
+        for j in 0..N {
+            sum[j] = wasm32::f64x2_add(sum[j], lh[j]);
+        }
+
+        let q0: u64 = wasm32::u64x2_extract_lane::<0>(sum[0]) * n0;
+        let q1: u64 = wasm32::u64x2_extract_lane::<1>(sum[0]) * n0;
+
+        term = wasm32::f64x2_sub(
+            wasm32::u64x2_add(
+                wasm32::v128_and(
+                    wasm32::u64x2(q0, q1),
+                    c0
+                ),
+                c1
+            ),
+            c2
+        );
+
+        for j in 0..N {
+            lh[j] = wasm32::f64x2_relaxed_madd(term, p[j], c3);
+        }
+
+        for j in 0..N {
+            sum[j + 1] = wasm32::u64x2_add(sum[j + 1], lh[j]);
+        }
+
+        for j in 0..N {
+            lh[j] = wasm32::f64x2_sub(c4, lh[j]);
+        }
+
+        for j in 0..N {
+            lh[j] = wasm32::f64x2_relaxed_madd(term, p[j], lh[j]);
+        }
+
+        sum[0] = wasm32::u64x2_add(sum[0], lh[0]);
+        sum[1] = wasm32::u64x2_add(sum[1], lh[1]);
+        sum[0] = wasm32::u64x2_add(sum[1], wasm32::u64x2_shr(sum[0], 51));
+
+        for j in 1..N - 1 {
+            sum[j] = wasm32::u64x2_add(sum[j + 1], lh[j + 1]);
+        }
+
+        sum[4] = sum[5];
+        sum[5] = sum[i + 6];
+    }
+
+    let mut res = [zero; N];
+
+    for i in 0..N {
+        res[i] = sum[i];
+    }
+
+    res
+}
+*/
 
 pub fn to_u64<const N: usize>(v: [u32; N]) -> [u64; N] {
     let mut result = [0u64; N];
@@ -13,8 +386,11 @@ pub fn to_u64<const N: usize>(v: [u32; N]) -> [u64; N] {
 /// al.. High-performance Elliptic Curve Cryptography by Using the CIOS Method for Modular
 /// Multiplication. CRiSIS 2016, Sep 2016, Roscoff, France. hal-01383162
 /// https://inria.hal.science/hal-01383162/document, page 4
-/// Also see Acar 1996
-/// Does not implement the gnark optimisation
+/// Also see Acar, 1996.
+/// This is the "classic" CIOS algorithm.
+/// Does not implement the gnark optimisation (https://hackmd.io/@gnark/modular_multiplication),
+/// but that should be useful.
+/// Does not use SIMD instructions.
 pub unsafe fn mont_mul_cios<
     const N: usize,
     const N_PLUS_1: usize,
@@ -64,6 +440,7 @@ pub unsafe fn mont_mul_cios<
         t[N] = t[N + 1] + c;
     }
 
+    // Conditional subtraction
     let mut t_gt_p = false;
     for idx in 0..N + 1 {
         let i = N - idx;
@@ -132,6 +509,12 @@ pub fn lo(v: u64) -> u64 {
 
 /// Algorithm 4 of "Montgomery Arithmetic from a Software Perspective" by Bos and Montgomery
 /// Uses WASM SIMD opcodes.
+/// Counterintuitively, in browsers, this runs slower than the non-SIMD version, likely because the
+/// SIMD opcodes are emulated rather than executed using the native processor's SIMD instructions. 
+/// The performance difference can be seen in benchmarks.
+/// See https://emscripten.org/docs/porting/simd.html#optimization-considerations for a list of
+/// *some* WASM SIMD instructions which do not have equivalent x86 semantics; those which this
+/// function uses probably suffer from the same issue.
 /// Also see:
 /// https://github.com/coreboot/vboot/blob/060efa0cf64d4b7ccbe3e88140c9da5f747355ee/firmware/2lib/2modpow_sse2.c#L113
 /// Note: overflow-checks = false should be set in Cargo.toml under [profile.dev], so the Wrapping
@@ -226,7 +609,7 @@ pub unsafe fn bm17_simd_mont_mul<const N: usize, const B: u32>(
     }
 }
 
-/// Algorithm 4, but without using SIMD instructions
+/// Algorithm 4, but without using SIMD instructions. This is useful just for debugging.
 pub fn bm17_non_simd_mont_mul<const N: usize, const B: u32>(
     ar_32: &BigInt<N, B>,
     br_32: &BigInt<N, B>,

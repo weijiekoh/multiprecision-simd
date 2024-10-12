@@ -1,3 +1,5 @@
+#![feature(wasm_target_feature)]
+#![feature(stdarch_wasm_relaxed_simd)]
 pub mod bigint;
 pub mod mont;
 pub mod run;
@@ -27,6 +29,7 @@ extern "C" {
 #[wasm_bindgen]
 #[cfg(target_arch = "wasm32")]
 #[target_feature(enable = "simd128")]
+#[target_feature(enable = "relaxed-simd")]
 pub fn run() {
     crate::run::do_run();
 }
