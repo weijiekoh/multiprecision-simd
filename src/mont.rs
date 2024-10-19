@@ -1,7 +1,7 @@
 use core::arch::wasm32;
 use crate::bigint::{BigInt, BigIntF, gt, sub, bigintf_sub};
 
-use web_sys::console;
+//use web_sys::console;
 
 pub unsafe fn msl_is_greater<
     const N: usize,
@@ -51,48 +51,15 @@ pub unsafe fn resolve_bigintf<
     let mut local = [0u64; N_MINUS_2];
     let mut res = [0f64; N];
 
-    /*
-    local[0]=i64x2_add(val[1], i64x2_shr(val[0], 51));
-    local[1]=i64x2_add(val[2], i64x2_shr(local[0], 51));
-    local[2]=i64x2_add(val[3], i64x2_shr(local[1], 51));
-    res[4]  =i64x2_add(val[4], i64x2_shr(local[2], 51));
-
-    res[0]=i64x2_and(val[0], mask);
-    res[1]=i64x2_and(local[0], mask);
-    res[2]=i64x2_and(local[1], mask);
-    res[3]=i64x2_and(local[2], mask);
-    */
-
     local[0] = val.0[1].to_bits() + ((val.0[0].to_bits() as i64) >> B) as u64;
     local[1] = val.0[2].to_bits() + ((local[0] as i64) >> B) as u64;
     local[2] = val.0[3].to_bits() + ((local[1] as i64) >> B) as u64;
-    res[4]   = f64::from_bits(val.0[4].to_bits() + ((local[2] as i64) >> B) as u64);
+    res[4]   = (val.0[4].to_bits() + ((local[2] as i64) >> B) as u64) as f64;
 
-    //console::log_1(&format!("{:016x}", val.0[4].to_bits()).into());
-    //console::log_1(&format!("local[2]       {:016x}", local[2]).into());
-    //console::log_1(&format!("local[2] >> {} {:016x}", B, ((local[2] as i64) >> B) as u64).into());
-    //console::log_1(&format!("{:016x}", res[4].to_bits()).into());
-
-    res[0] = f64::from_bits(val.0[0].to_bits() & mask);
-    res[1] = f64::from_bits(local[0]           & mask);
-    res[2] = f64::from_bits(local[1]           & mask);
-    res[3] = f64::from_bits(local[2]           & mask);
-
-    /*
-    local[0] = val.0[1].to_bits() + (val.0[0].to_bits() >> B);
-
-    for i in 1..N_MINUS_2 {
-        local[i] = val.0[i + 1].to_bits() + (local[i - 1] >> B);
-    }
-
-    res[N - 1] = f64::from_bits(val.0[N - 1].to_bits() + (local[N_MINUS_2 - 1] >> 51));
-
-    res[0] = f64::from_bits(val.0[0].to_bits() & mask);
-
-    for i in 1..N - 1 {
-        res[i] = f64::from_bits(local[i - 1] & mask);
-    }
-    */
+    res[0] = (val.0[0].to_bits() & mask) as f64;
+    res[1] = (local[0]           & mask) as f64;
+    res[2] = (local[1]           & mask) as f64;
+    res[3] = (local[2]           & mask) as f64;
 
     BigIntF::<N, B>(res)
 }
@@ -251,128 +218,6 @@ pub unsafe fn mont_mul_cios_f64_no_simd<
     }
     BigIntF::<N, B>(res)
 }
-
-/*
-#[cfg(all(feature = "simd", target_feature = "simd128"))]
-#[target_feature(enable = "relaxed-simd")]
-pub unsafe fn mont_mul_cios_f64_simd<
-    const N: usize,
-    const N_PLUS_1: usize,
-    const N_PLUS_2: usize,
-    const N_TIMES_2: usize,
-    const B: u32
->(
-    ar_51: &BigIntF<N, B>,
-    br_51: &BigIntF<N, B>,
-    p_51: &BigIntF<N, B>,
-    n0: u64,
-) -> [wasm32::v128; N] {
-    let zero = wasm32::u64x2_splat(0);
-    let mut bd = [zero; N];
-    let mut p = [zero; N];
-
-    // Assign bd and p
-    for i in 0..N {
-        bd[i] = wasm32::f64x2_splat(br_51.0[i]);
-        p[i] = wasm32::f64x2_splat(p_51.0[i]);
-    }
-
-    let mut sum = [zero; N_TIMES_2];
-    // Niall's magic numbers
-    sum[0]=wasm32::u64x2_splat(0x7990000000000000u64);
-    sum[1]=wasm32::u64x2_splat(0x6660000000000000u64);
-    sum[2]=wasm32::u64x2_splat(0x5330000000000000u64);
-    sum[3]=wasm32::u64x2_splat(0x4000000000000000u64);
-    sum[4]=wasm32::u64x2_splat(0x2CD0000000000000u64);
-    sum[5]=wasm32::u64x2_splat(0x2680000000000000u64);
-    sum[6]=wasm32::u64x2_splat(0x39B0000000000000u64);
-    sum[7]=wasm32::u64x2_splat(0x4CE0000000000000u64);
-    sum[8]=wasm32::u64x2_splat(0x6010000000000000u64);
-    sum[9]=wasm32::u64x2_splat(0x7340000000000000u64);
-    //sum[10]=wasm32::u64x2_splat(0);
-
-    let c0 = wasm32::u64x2_splat(0x7fffffffffffffu64);
-    let c1 = wasm32::u64x2_splat(0x4330000000000000u64);
-    let c2 = c1;
-    let c3 = wasm32::u64x2_splat(0x4660000000000000u64);
-    let c4 = wasm32::u64x2_splat(0x4660000000000003u64);
-
-    let mut term = wasm32::u64x2_splat(0);
-    let mut lh = [zero; N];
-    for i in 0..N {
-        term = wasm32::f64x2(ar_51.0[i], 0f64);
-
-        for j in 0..N {
-            lh[j] = wasm32::f64x2_relaxed_madd(term, bd[j], c3);
-        }
-
-        for j in 0..N {
-            sum[j + 1] = wasm32::f64x2_add(sum[j + 1], lh[j]);
-        }
-
-        for j in 0..N {
-            lh[j] = wasm32::f64x2_sub(c4, lh[j]);
-        }
-
-        for j in 0..N {
-            lh[j] = wasm32::f64x2_relaxed_madd(term, bd[j], lh[j]);
-        }
-
-        for j in 0..N {
-            sum[j] = wasm32::f64x2_add(sum[j], lh[j]);
-        }
-
-        let q0: u64 = wasm32::u64x2_extract_lane::<0>(sum[0]) * n0;
-        let q1: u64 = wasm32::u64x2_extract_lane::<1>(sum[0]) * n0;
-
-        term = wasm32::f64x2_sub(
-            wasm32::u64x2_add(
-                wasm32::v128_and(
-                    wasm32::u64x2(q0, q1),
-                    c0
-                ),
-                c1
-            ),
-            c2
-        );
-
-        for j in 0..N {
-            lh[j] = wasm32::f64x2_relaxed_madd(term, p[j], c3);
-        }
-
-        for j in 0..N {
-            sum[j + 1] = wasm32::u64x2_add(sum[j + 1], lh[j]);
-        }
-
-        for j in 0..N {
-            lh[j] = wasm32::f64x2_sub(c4, lh[j]);
-        }
-
-        for j in 0..N {
-            lh[j] = wasm32::f64x2_relaxed_madd(term, p[j], lh[j]);
-        }
-
-        sum[0] = wasm32::u64x2_add(sum[0], lh[0]);
-        sum[1] = wasm32::u64x2_add(sum[1], lh[1]);
-        sum[0] = wasm32::u64x2_add(sum[1], wasm32::u64x2_shr(sum[0], 51));
-
-        for j in 1..N - 1 {
-            sum[j] = wasm32::u64x2_add(sum[j + 1], lh[j + 1]);
-        }
-
-        sum[4] = sum[5];
-        sum[5] = sum[i + 6];
-    }
-
-    let mut res = [zero; N];
-
-    for i in 0..N {
-        res[i] = sum[i];
-    }
-
-    res
-}
-*/
 
 pub fn to_u64<const N: usize>(v: [u32; N]) -> [u64; N] {
     let mut result = [0u64; N];
@@ -683,3 +528,127 @@ pub fn bm17_non_simd_mont_mul<const N: usize, const B: u32>(
         sub(&d, &e)
     }
 }
+
+/*
+// Unfortunately I can't get this to run because there is a bug in wasm-pack related to
+// relaxed-simd opcodes.
+#[cfg(all(feature = "simd", target_feature = "simd128"))]
+#[target_feature(enable = "relaxed-simd")]
+pub unsafe fn mont_mul_cios_f64_simd<
+    const N: usize,
+    const N_PLUS_1: usize,
+    const N_PLUS_2: usize,
+    const N_TIMES_2: usize,
+    const B: u32
+>(
+    ar_51: &BigIntF<N, B>,
+    br_51: &BigIntF<N, B>,
+    p_51: &BigIntF<N, B>,
+    n0: u64,
+) -> [wasm32::v128; N] {
+    let zero = wasm32::u64x2_splat(0);
+    let mut bd = [zero; N];
+    let mut p = [zero; N];
+
+    // Assign bd and p
+    for i in 0..N {
+        bd[i] = wasm32::f64x2_splat(br_51.0[i]);
+        p[i] = wasm32::f64x2_splat(p_51.0[i]);
+    }
+
+    let mut sum = [zero; N_TIMES_2];
+    // Niall's magic numbers
+    sum[0]=wasm32::u64x2_splat(0x7990000000000000u64);
+    sum[1]=wasm32::u64x2_splat(0x6660000000000000u64);
+    sum[2]=wasm32::u64x2_splat(0x5330000000000000u64);
+    sum[3]=wasm32::u64x2_splat(0x4000000000000000u64);
+    sum[4]=wasm32::u64x2_splat(0x2CD0000000000000u64);
+    sum[5]=wasm32::u64x2_splat(0x2680000000000000u64);
+    sum[6]=wasm32::u64x2_splat(0x39B0000000000000u64);
+    sum[7]=wasm32::u64x2_splat(0x4CE0000000000000u64);
+    sum[8]=wasm32::u64x2_splat(0x6010000000000000u64);
+    sum[9]=wasm32::u64x2_splat(0x7340000000000000u64);
+    //sum[10]=wasm32::u64x2_splat(0);
+
+    let c0 = wasm32::u64x2_splat(0x7fffffffffffffu64);
+    let c1 = wasm32::u64x2_splat(0x4330000000000000u64);
+    let c2 = c1;
+    let c3 = wasm32::u64x2_splat(0x4660000000000000u64);
+    let c4 = wasm32::u64x2_splat(0x4660000000000003u64);
+
+    let mut term = wasm32::u64x2_splat(0);
+    let mut lh = [zero; N];
+    for i in 0..N {
+        term = wasm32::f64x2(ar_51.0[i], 0f64);
+
+        for j in 0..N {
+            lh[j] = wasm32::f64x2_relaxed_madd(term, bd[j], c3);
+        }
+
+        for j in 0..N {
+            sum[j + 1] = wasm32::f64x2_add(sum[j + 1], lh[j]);
+        }
+
+        for j in 0..N {
+            lh[j] = wasm32::f64x2_sub(c4, lh[j]);
+        }
+
+        for j in 0..N {
+            lh[j] = wasm32::f64x2_relaxed_madd(term, bd[j], lh[j]);
+        }
+
+        for j in 0..N {
+            sum[j] = wasm32::f64x2_add(sum[j], lh[j]);
+        }
+
+        let q0: u64 = wasm32::u64x2_extract_lane::<0>(sum[0]) * n0;
+        let q1: u64 = wasm32::u64x2_extract_lane::<1>(sum[0]) * n0;
+
+        term = wasm32::f64x2_sub(
+            wasm32::u64x2_add(
+                wasm32::v128_and(
+                    wasm32::u64x2(q0, q1),
+                    c0
+                ),
+                c1
+            ),
+            c2
+        );
+
+        for j in 0..N {
+            lh[j] = wasm32::f64x2_relaxed_madd(term, p[j], c3);
+        }
+
+        for j in 0..N {
+            sum[j + 1] = wasm32::u64x2_add(sum[j + 1], lh[j]);
+        }
+
+        for j in 0..N {
+            lh[j] = wasm32::f64x2_sub(c4, lh[j]);
+        }
+
+        for j in 0..N {
+            lh[j] = wasm32::f64x2_relaxed_madd(term, p[j], lh[j]);
+        }
+
+        sum[0] = wasm32::u64x2_add(sum[0], lh[0]);
+        sum[1] = wasm32::u64x2_add(sum[1], lh[1]);
+        sum[0] = wasm32::u64x2_add(sum[1], wasm32::u64x2_shr(sum[0], 51));
+
+        for j in 1..N - 1 {
+            sum[j] = wasm32::u64x2_add(sum[j + 1], lh[j + 1]);
+        }
+
+        sum[4] = sum[5];
+        sum[5] = sum[i + 6];
+    }
+
+    let mut res = [zero; N];
+
+    for i in 0..N {
+        res[i] = sum[i];
+    }
+
+    res
+}
+*/

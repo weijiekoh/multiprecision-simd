@@ -171,12 +171,12 @@ fn niall_full_product(a: f64, b: f64) -> (u64, u64) {
     // 0100011001100010101001001001101101001100000010110101001111010111
 
     let sub = c2 - hi;
-    let mut lo = a.mul_add(b, sub);
+    let lo = a.mul_add(b, sub);
 
     let mut hi = hi.to_bits() - c1.to_bits();
 
     // If there is an overflow, subtract 1 from the high term.
-    let mut lo = lo.to_bits() & mask;
+    let  lo = lo.to_bits() & mask;
     if lo & 0x4000000000000u64 > 0 {
         //console::log_1(&format!("overflow").into());
         hi -= 1;

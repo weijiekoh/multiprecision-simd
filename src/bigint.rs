@@ -96,7 +96,6 @@ pub fn sub<const N: usize, const B: u32>(
     BigInt::<N, B>(result)
 }
 
-
 /*
 use core::arch::wasm32::{v128, u32x4, u64x2, u64x2_add, u64x2_sub, u64x2_extract_lane, u64x2_replace_lane};
 use std::cmp::{PartialEq, Eq};
